@@ -1,145 +1,155 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 
-st.set_page_config(page_title="🎵 Music Clustering", layout="wide")
+st.set_page_config(
+    page_title="Amazon Music Clustering",
+    layout="wide"
+)
 
-# ── Load Models ──────────────────────────────────────────────
-@st.cache_resource
-def load_models():
-    with open("kmeans_model.pkl", "rb") as f:
-        kmeans = pickle.load(f)
-    with open("scaler.pkl", "rb") as f:
-        scaler = pickle.load(f)
-    with open("pca_model.pkl", "rb") as f:
-        pca = pickle.load(f)
-    return kmeans, scaler, pca
+st.title("🎵 Amazon Music Clustering Dashboard")
 
-kmeans, scaler, pca = load_models()
+df = pd.read_csv("final_clustered_songs.csv")
 
-FEATURES = [
-    'danceability', 'energy', 'loudness', 'speechiness',
-    'acousticness', 'instrumentalness', 'liveness',
-    'valence', 'tempo', 'duration_ms'
-]
+with open("scaler.pkl", "rb") as f:
+    scaler = pickle.load(f)
 
-CLUSTER_NAMES = {
-    0: "🎤 Rap Songs",
-    1: "🎸 Chill Acoustic",
-    2: "🎻 Instrumental Music",
-    3: "💃 Happy Dance Songs",
-    4: "🔥 High Energy Party Songs"
-}
+with open("kmeans_model.pkl", "rb") as f:
+    model = pickle.load(f)
 
-# ── Sidebar ───────────────────────────────────────────────────
-st.sidebar.title("🎵 Navigation")
-page = st.sidebar.radio("Go to", ["🏠 Home", "📊 Dashboard", "🔮 Predict Song"])
+page = st.sidebar.selectbox(
+    "Select Page",
+    [
+        "Overview",
+        "Cluster Analysis",
+        "Predict Cluster"
+    ]
+)
 
-# ══════════════════════════════════════════════════════════════
-# HOME
-# ══════════════════════════════════════════════════════════════
-if page == "🏠 Home":
-    st.title("🎵 Amazon Music Song Clustering")
-    st.markdown("Group songs automatically by their audio features using **K-Means Clustering**.")
-    st.markdown("---")
+if page == "Overview":
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Algorithm", "K-Means")
-    col2.metric("Clusters", "5")
-    col3.metric("Features Used", "10")
+    st.subheader("Dataset")
 
-    st.markdown("---")
-    st.subheader("🗂️ Cluster Groups")
-    for cid, name in CLUSTER_NAMES.items():
-        st.markdown(f"**Cluster {cid}** → {name}")
+    st.write(df.head())
 
-# ══════════════════════════════════════════════════════════════
-# DASHBOARD
-# ══════════════════════════════════════════════════════════════
-elif page == "📊 Dashboard":
-    st.title("📊 Cluster Dashboard")
-    uploaded = st.file_uploader("Upload final_clustered_songs.csv", type=["csv"])
+    st.metric("Songs", len(df))
+    st.metric("Clusters", df["cluster"].nunique())
 
-    if uploaded:
-        df = pd.read_csv(uploaded)
+    st.subheader("Cluster Distribution")
 
-        if 'cluster' not in df.columns:
-            st.error("❌ No 'cluster' column found. Please upload the final clustered CSV.")
-        else:
-            df['cluster_name'] = df['cluster'].map(CLUSTER_NAMES)
-            st.success(f"✅ {len(df):,} songs loaded")
+    st.bar_chart(
+        df["cluster"].value_counts()
+    )
 
-            # Cluster count
-            st.subheader("Songs per Cluster")
-            counts = df['cluster_name'].value_counts()
-            fig, ax = plt.subplots(figsize=(8, 3))
-            counts.plot(kind='bar', ax=ax, color='steelblue', edgecolor='black')
-            ax.set_xlabel("Cluster")
-            ax.set_ylabel("Count")
-            plt.xticks(rotation=20)
-            st.pyplot(fig)
+elif page == "Cluster Analysis":
 
-            # Heatmap
-            st.subheader("Feature Heatmap per Cluster")
-            cluster_mean = df.groupby('cluster')[FEATURES].mean()
-            fig2, ax2 = plt.subplots(figsize=(12, 4))
-            sns.heatmap(cluster_mean, annot=True, fmt=".2f", cmap='coolwarm', ax=ax2)
-            ax2.set_yticklabels([CLUSTER_NAMES.get(i, i) for i in cluster_mean.index], rotation=0)
-            st.pyplot(fig2)
+    st.subheader("Cluster Mean Features")
 
-            # PCA scatter
-            st.subheader("PCA Scatter Plot")
-            if 'PC1' not in df.columns:
-                X_scaled = scaler.transform(df[FEATURES])
-                X_pca = pca.transform(X_scaled)
-                df['PC1'] = X_pca[:, 0]
-                df['PC2'] = X_pca[:, 1]
+    features = [
+        'danceability',
+        'energy',
+        'loudness',
+        'speechiness',
+        'acousticness',
+        'instrumentalness',
+        'liveness',
+        'valence',
+        'tempo',
+        'duration_ms'
+    ]
 
-            fig3, ax3 = plt.subplots(figsize=(8, 5))
-            for cid in sorted(df['cluster'].unique()):
-                mask = df['cluster'] == cid
-                ax3.scatter(df.loc[mask, 'PC1'], df.loc[mask, 'PC2'],
-                            label=CLUSTER_NAMES.get(cid, cid), alpha=0.5, s=10)
-            ax3.set_xlabel("PC1")
-            ax3.set_ylabel("PC2")
-            ax3.legend(fontsize=8)
-            st.pyplot(fig3)
+    cluster_mean = (
+        df.groupby("cluster")[features]
+        .mean()
+    )
 
-    else:
-        st.info("👆 Upload your final_clustered_songs.csv to see charts.")
+    st.dataframe(cluster_mean)
 
-# ══════════════════════════════════════════════════════════════
-# PREDICT
-# ══════════════════════════════════════════════════════════════
-elif page == "🔮 Predict Song":
-    st.title("🔮 Predict Your Song's Cluster")
-    st.markdown("Adjust the sliders and click Predict.")
-    st.markdown("---")
+    fig, ax = plt.subplots(figsize=(12,6))
 
-    col1, col2 = st.columns(2)
-    with col1:
-        danceability     = st.slider("💃 Danceability",       0.0, 1.0, 0.5, 0.01)
-        energy           = st.slider("⚡ Energy",              0.0, 1.0, 0.5, 0.01)
-        speechiness      = st.slider("🗣️ Speechiness",        0.0, 1.0, 0.1, 0.01)
-        acousticness     = st.slider("🎸 Acousticness",       0.0, 1.0, 0.3, 0.01)
-        instrumentalness = st.slider("🎹 Instrumentalness",   0.0, 1.0, 0.0, 0.01)
-    with col2:
-        liveness     = st.slider("🎤 Liveness",           0.0, 1.0, 0.1, 0.01)
-        valence      = st.slider("😊 Valence",            0.0, 1.0, 0.5, 0.01)
-        loudness     = st.slider("🔊 Loudness (dB)",     -60.0, 0.0, -10.0, 0.1)
-        tempo        = st.slider("🥁 Tempo (BPM)",        50.0, 250.0, 120.0, 1.0)
-        duration_ms  = st.number_input("⏱️ Duration (ms)", 30000, 600000, 210000, 1000)
+    sns.heatmap(
+        cluster_mean,
+        annot=True,
+        cmap="coolwarm",
+        ax=ax
+    )
 
-    if st.button("🔮 Predict", use_container_width=True):
-        inp = np.array([[danceability, energy, loudness, speechiness,
-                         acousticness, instrumentalness, liveness,
-                         valence, tempo, duration_ms]])
-        inp_scaled = scaler.transform(inp)
-        cluster_id = kmeans.predict(inp_scaled)[0]
-        st.success(f"🎵 Cluster {cluster_id} → **{CLUSTER_NAMES[cluster_id]}**")
+    st.pyplot(fig)
 
-st.markdown("---")
-st.markdown("<center style='color:grey'>🎵 Amazon Music Clustering Project</center>", unsafe_allow_html=True)
+elif page == "Predict Cluster":
+
+    st.subheader("Predict New Song Cluster")
+
+    danceability = st.slider(
+        "danceability",0.0,1.0,0.5
+    )
+
+    energy = st.slider(
+        "energy",0.0,1.0,0.5
+    )
+
+    loudness = st.number_input(
+        "loudness",-60.0,5.0,-10.0
+    )
+
+    speechiness = st.slider(
+        "speechiness",0.0,1.0,0.1
+    )
+
+    acousticness = st.slider(
+        "acousticness",0.0,1.0,0.5
+    )
+
+    instrumentalness = st.slider(
+        "instrumentalness",0.0,1.0,0.0
+    )
+
+    liveness = st.slider(
+        "liveness",0.0,1.0,0.2
+    )
+
+    valence = st.slider(
+        "valence",0.0,1.0,0.5
+    )
+
+    tempo = st.number_input(
+        "tempo",0.0,250.0,120.0
+    )
+
+    duration_ms = st.number_input(
+        "duration_ms",10000,500000,200000
+    )
+
+    if st.button("Predict"):
+
+        sample = np.array([[
+            danceability,
+            energy,
+            loudness,
+            speechiness,
+            acousticness,
+            instrumentalness,
+            liveness,
+            valence,
+            tempo,
+            duration_ms
+        ]])
+
+        sample_scaled = scaler.transform(sample)
+
+        cluster = model.predict(sample_scaled)[0]
+
+        cluster_names = {
+            0: "Rap Songs",
+            1: "Chill Acoustic",
+            2: "Instrumental Music",
+            3: "Happy Dance Songs",
+            4: "High Energy Party Songs"
+        }
+
+        st.success(
+            f"Cluster {cluster} : {cluster_names[cluster]}"
+        )
